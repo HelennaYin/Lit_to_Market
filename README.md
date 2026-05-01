@@ -182,27 +182,4 @@ Poll the returned run ID:
 curl -s http://127.0.0.1:5001/api/research/runs/RUN_ID
 ```
 
-## Regenerating Web-App-Matched Robustness Figures
 
-From the workspace root:
-
-```bash
-MPLCONFIGDIR=/private/tmp/matplotlib \
-python3 "Short term analysis/robustness_check_v2.py"
-```
-
-Outputs:
-
-```text
-Short term analysis/outputs/10_extended_car_curves_v2.png
-Short term analysis/outputs/11_control_test_v2.png
-```
-
-## Important Notes
-
-- This is an exploratory analytics app, not a trading system.
-- Granger tests are presented as predictive precedence, not proof of
-  causality.
-- Viral-paper alerts show historical event-study context, not forecasts.
-- Refreshes can make many OpenAlex, Reddit, Wikipedia, and yfinance calls.
-  Use `--dry-run` and the batch-size flags before long catch-up runs.
