@@ -267,7 +267,14 @@ def rebuild_combined_publication_counts(sectors: tuple[str, ...]) -> None:
     print(f"rebuilt combined publication counts: {len(weekly_rows)} weekly rows, {len(monthly_rows)} monthly rows")
 
 
-def refresh_market_data(start: str, end: str, dry_run: bool) -> None:
+def refresh_market_data(
+    start: str,
+    end: str,
+    dry_run: bool,
+    retries: int,
+    retry_sleep: int,
+    fail_fast: bool,
+) -> None:
     print(f"[market] target range {start} -> {end}")
     if dry_run:
         for sector, (ticker, path) in MARKET_SOURCES.items():
@@ -283,15 +290,44 @@ def refresh_market_data(start: str, end: str, dry_run: bool) -> None:
         ) from exc
 
     STOCK_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    failed: list[str] = []
+
     for sector, (ticker, path) in MARKET_SOURCES.items():
-        print(f"  downloading {ticker} ({sector})")
-        df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
-        if df.empty:
-            raise RuntimeError(f"yfinance returned no rows for {ticker}")
-        df.to_csv(path)
-        print(f"  saved {path}")
+        ok = False
+        for attempt in range(1, retries + 1):
+            print(f"  downloading {ticker} ({sector}) attempt {attempt}/{retries}")
+            try:
+                df = yf.download(ticker, start=start, end=end, auto_adjust=True, progress=False)
+            except Exception as exc:
+                df = None
+                print(f"    yfinance error for {ticker}: {exc}")
+
+            if df is not None and not df.empty:
+                df.to_csv(path)
+                print(f"    saved {path}")
+                ok = True
+                break
+
+            if attempt < retries:
+                print(f"    no rows for {ticker}; waiting {retry_sleep}s before retry")
+                time.sleep(retry_sleep)
+
+        if not ok:
+            failed.append(ticker)
+            message = f"yfinance returned no rows for {ticker}"
+            if path.exists():
+                print(f"    WARNING: {message}; keeping existing {path}")
+            elif fail_fast:
+                raise RuntimeError(message)
+            else:
+                print(f"    WARNING: {message}; no existing raw file found")
 
     rebuild_market_aggregates()
+    if failed:
+        print(
+            "market refresh completed with stale/missing tickers: "
+            + ", ".join(failed)
+        )
 
 
 def rebuild_market_aggregates() -> None:
@@ -353,6 +389,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--force-current-week", action="store_true", help="Fetch through the current Monday even if the week is incomplete.")
     parser.add_argument("--market-start", default="2016-01-01")
     parser.add_argument("--market-end", default=date.today().isoformat(), help="yfinance end date is exclusive.")
+    parser.add_argument("--market-retries", type=int, default=3)
+    parser.add_argument("--market-retry-sleep", type=int, default=60)
+    parser.add_argument(
+        "--market-fail-fast",
+        action="store_true",
+        help="Abort if any ticker fails instead of keeping existing raw CSVs.",
+    )
     parser.add_argument("--sectors", nargs="+", choices=APP_SECTORS, default=list(APP_SECTORS))
     return parser.parse_args()
 
@@ -366,7 +409,14 @@ def main() -> None:
         refresh_weekly_counts(sectors, target_week, dry_run=args.dry_run)
 
     if not args.skip_market:
-        refresh_market_data(args.market_start, args.market_end, dry_run=args.dry_run)
+        refresh_market_data(
+            args.market_start,
+            args.market_end,
+            dry_run=args.dry_run,
+            retries=args.market_retries,
+            retry_sleep=args.market_retry_sleep,
+            fail_fast=args.market_fail_fast,
+        )
 
 
 if __name__ == "__main__":
