@@ -181,7 +181,6 @@ def clean_cache(cache_dir: Path, output_dir: Path) -> dict[str, object]:
 
     viral_kept, viral_removed = clean_paper_rows(viral_events)
     viral_kept, viral_duplicates = dedupe_by_key(viral_kept, ("doi", "sector"))
-    kept_event_ids = {str(row.get("event_id")) for row in viral_kept}
     removed_dois = {normalized_doi(row) for row in viral_removed}
 
     viral_fieldnames = ["event_id"] + [f for f in viral_events[0].keys() if f != "event_id"]
@@ -193,16 +192,22 @@ def clean_cache(cache_dir: Path, output_dir: Path) -> dict[str, object]:
     )
 
     event_windows = read_csv(cache_dir / "event_windows.csv")
-    event_windows_clean = [
-        row for row in event_windows
-        if str(row.get("event_id") or "") in kept_event_ids
-    ]
+    event_windows_clean, event_windows_removed = clean_paper_rows(event_windows)
+    event_windows_clean, event_window_duplicates = dedupe_by_key(
+        event_windows_clean,
+        ("doi", "sector", "event_date", "day_relative"),
+    )
     complete_ids = complete_event_ids(event_windows_clean)
     event_windows_complete = [
         row for row in event_windows_clean
         if str(row.get("event_id") or "") in complete_ids
     ]
     write_csv(output_dir / "event_windows_clean.csv", event_windows_clean, list(event_windows[0].keys()))
+    write_csv(
+        output_dir / "event_windows_removed.csv",
+        event_windows_removed,
+        [*list(event_windows[0].keys()), "filter_reason"],
+    )
     write_csv(
         output_dir / "event_windows_complete_day5_clean.csv",
         event_windows_complete,
@@ -247,9 +252,12 @@ def clean_cache(cache_dir: Path, output_dir: Path) -> dict[str, object]:
         "event_windows": {
             "source_rows": len(event_windows),
             "clean_rows": len(event_windows_clean),
+            "removed_rows": len(event_windows_removed),
+            "duplicate_rows_removed": event_window_duplicates,
             "complete_day5_rows": len(event_windows_complete),
             "clean_event_count": len({row.get("event_id") for row in event_windows_clean}),
             "complete_day5_event_count": len(complete_ids),
+            "removed_reasons": reason_counts(event_windows_removed),
         },
         "filtered_papers": {
             "source_rows": len(filtered_papers),

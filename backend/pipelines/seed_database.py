@@ -487,7 +487,15 @@ def seed_attention_scores(conn, paper_ids: dict[tuple[str, str], int]) -> int:
     return inserted
 
 
-def seed_viral_events(conn, paper_ids: dict[tuple[str, str], int]) -> dict[str, int]:
+def event_key(row: dict[str, str]) -> tuple[str, str, str]:
+    return (
+        norm_doi(row.get("doi")),
+        str(row.get("sector") or ""),
+        str(row.get("event_date") or row.get("publication_date") or "")[:10],
+    )
+
+
+def seed_viral_events(conn, paper_ids: dict[tuple[str, str], int]) -> dict[tuple[str, str, str], int]:
     timestamp = now_iso()
     rows = read_csv(CLEANED_DIR / "viral_events_clean.csv")
     cas_by_sector: dict[str, list[float]] = defaultdict(list)
@@ -501,7 +509,7 @@ def seed_viral_events(conn, paper_ids: dict[tuple[str, str], int]) -> dict[str, 
         for sector, values in cas_by_sector.items()
     }
 
-    event_id_map: dict[str, int] = {}
+    event_id_map: dict[tuple[str, str, str], int] = {}
     for row in rows:
         doi = norm_doi(row.get("doi"))
         sector = row["sector"]
@@ -531,7 +539,7 @@ def seed_viral_events(conn, paper_ids: dict[tuple[str, str], int]) -> dict[str, 
             ),
         )
         db_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
-        event_id_map[str(row.get("event_id"))] = int(db_id)
+        event_id_map[event_key(row)] = int(db_id)
 
     seed_radar_thresholds(conn, cas_by_sector)
     return event_id_map
@@ -562,14 +570,14 @@ def seed_radar_thresholds(conn, cas_by_sector: dict[str, list[float]]) -> int:
     return inserted
 
 
-def seed_event_windows(conn, event_id_map: dict[str, int]) -> int:
+def seed_event_windows(conn, event_id_map: dict[tuple[str, str, str], int]) -> int:
     rows = read_csv(CLEANED_DIR / "event_windows_clean.csv")
     inserted = 0
     ticker_by_sector = {sector: cfg["viral_ticker"] for sector, cfg in SECTORS.items()}
 
     for row in rows:
-        viral_event_id = event_id_map.get(str(row.get("event_id")))
         sector = row.get("sector")
+        viral_event_id = event_id_map.get(event_key(row))
         if viral_event_id is None or sector not in SECTORS:
             continue
         conn.execute(
