@@ -14,7 +14,8 @@ data/*.db
 data/*.sqlite
 data/*.db-*
 data/*.sqlite-*
+data/cleaned/
+data/audit/
 
 # OS/editor noise
 .DS_Store
-
