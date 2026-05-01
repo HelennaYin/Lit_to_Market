@@ -9,6 +9,19 @@ async function getJson(path) {
   return data;
 }
 
+async function postJson(path, payload) {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || `Request failed: ${response.status}`);
+  }
+  return data;
+}
+
 export function fetchSectors() {
   return getJson("/api/sectors");
 }
@@ -27,4 +40,12 @@ export function fetchViralAnalysis(sector) {
 
 export function fetchViralFeed(sector, days = 5) {
   return getJson(`/api/viral?sector=${encodeURIComponent(sector)}&days=${days}`);
+}
+
+export function createResearchRun(payload) {
+  return postJson("/api/research/runs", payload);
+}
+
+export function fetchResearchRun(runId) {
+  return getJson(`/api/research/runs/${encodeURIComponent(runId)}`);
 }

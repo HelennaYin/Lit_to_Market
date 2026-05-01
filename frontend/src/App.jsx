@@ -30,8 +30,10 @@ import {
   YAxis,
 } from "recharts";
 import {
+  createResearchRun,
   fetchAnalysis,
   fetchOverview,
+  fetchResearchRun,
   fetchSectors,
   fetchViralAnalysis,
 } from "./api";
@@ -804,47 +806,186 @@ function ViralFeed({ events }) {
 
 function ResearchPage({ sector }) {
   const defaultTerms = useMemo(() => (sector?.keywords || []).join("\n"), [sector]);
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const [keywords, setKeywords] = useState(defaultTerms);
+  const [ticker, setTicker] = useState(sector?.weekly_ticker || "");
+  const [dateStart, setDateStart] = useState("2019-01-01");
+  const [dateEnd, setDateEnd] = useState(today);
+  const [signal, setSignal] = useState("pub_zscore");
+  const [run, setRun] = useState(null);
+  const [error, setError] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    setKeywords(defaultTerms);
+    setTicker(sector?.weekly_ticker || "");
+  }, [defaultTerms, sector?.weekly_ticker]);
+
+  useEffect(() => {
+    if (!run?.id || !["queued", "running"].includes(run.status)) return undefined;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const data = await fetchResearchRun(run.id);
+        if (!cancelled) setRun(data.run);
+      } catch (pollError) {
+        if (!cancelled) setError(pollError);
+      }
+    };
+    const interval = window.setInterval(poll, 2500);
+    poll();
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [run?.id, run?.status]);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      const data = await createResearchRun({
+        keywords,
+        ticker,
+        date_start: dateStart,
+        date_end: dateEnd,
+      });
+      setRun(data.run);
+    } catch (submitError) {
+      setError(submitError);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const progress = run?.progress || {};
+  const result = run?.result;
+  const selectedResult = result?.signals?.[signal];
+
   return (
-    <section className="research-layout">
-      <Panel title="Custom Research Run" icon={FileSearch}>
-        <form className="research-form">
-          <label>
-            Keywords
-            <textarea value={defaultTerms} readOnly rows={7} />
-          </label>
-          <div className="form-grid">
+    <div className="page-stack">
+      <section className="research-layout">
+        <Panel title="Custom Research Run" icon={FileSearch}>
+          <form className="research-form" onSubmit={handleSubmit}>
             <label>
-              Ticker
-              <input value={sector?.weekly_ticker || ""} readOnly />
+              Keywords
+              <textarea
+                value={keywords}
+                onChange={(event) => setKeywords(event.target.value)}
+                rows={7}
+                placeholder={"large language model\nretrieval augmented generation"}
+              />
             </label>
-            <label>
-              Start
-              <input value="2015-01-01" readOnly />
-            </label>
-            <label>
-              End
-              <input value="2026-05-01" readOnly />
+            <div className="form-grid">
+              <label>
+                Ticker
+                <input
+                  value={ticker}
+                  onChange={(event) => setTicker(event.target.value.toUpperCase())}
+                  placeholder="BOTZ"
+                />
+              </label>
+              <label>
+                Start
+                <input
+                  type="date"
+                  min="2015-01-01"
+                  max={dateEnd}
+                  value={dateStart}
+                  onChange={(event) => setDateStart(event.target.value)}
+                />
+              </label>
+              <label>
+                End
+                <input
+                  type="date"
+                  min={dateStart}
+                  max={today}
+                  value={dateEnd}
+                  onChange={(event) => setDateEnd(event.target.value)}
+                />
+              </label>
+            </div>
+            <button className="primary-action enabled" type="submit" disabled={submitting || run?.status === "running" || run?.status === "queued"}>
+              <Search size={16} aria-hidden="true" />
+              {submitting ? "Submitting" : "Run Analysis"}
+            </button>
+          </form>
+        </Panel>
+        <Panel title="Run State" icon={Database}>
+          <dl className="update-list">
+            <div>
+              <dt>Status</dt>
+              <dd>{run?.status || "Ready"}</dd>
+            </div>
+            <div>
+              <dt>Progress</dt>
+              <dd>{progress.pct !== undefined ? `${progress.pct}%` : "0%"}</dd>
+            </div>
+            <div>
+              <dt>Stage</dt>
+              <dd>{progress.message || "Configure inputs and run"}</dd>
+            </div>
+            <div>
+              <dt>Run ID</dt>
+              <dd>{run?.id ? run.id.slice(0, 8) : "n/a"}</dd>
+            </div>
+          </dl>
+          {run && ["queued", "running"].includes(run.status) && (
+            <div className="progress-track" aria-label="Research run progress">
+              <span style={{ width: `${Math.max(3, progress.pct || 0)}%` }} />
+            </div>
+          )}
+          {(error || run?.error_message) && (
+            <div className="state-block error research-error">
+              {error?.message || run.error_message}
+            </div>
+          )}
+        </Panel>
+      </section>
+
+      {result && (
+        <>
+          <div className="analysis-controls">
+            <div className="context-strip">
+              Custom run for {result.ticker}: {result.keywords.join(", ")}
+            </div>
+            <label className="select-label compact">
+              Signal
+              <span className="select-wrap">
+                <select value={signal} onChange={(event) => setSignal(event.target.value)}>
+                  {SIGNALS.map((item) => (
+                    <option key={item} value={item}>
+                      {signalLabels[item]}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown size={16} aria-hidden="true" />
+              </span>
             </label>
           </div>
-          <button className="primary-action" type="button" disabled>
-            <Search size={16} aria-hidden="true" />
-            Runner Pending
-          </button>
-        </form>
-      </Panel>
-      <Panel title="Run State" icon={Database}>
-        <dl className="update-list">
-          <div>
-            <dt>Status</dt>
-            <dd>Backend research runner not available</dd>
-          </div>
-          <div>
-            <dt>Data source</dt>
-            <dd>Seeded SQLite sectors only</dd>
-          </div>
-        </dl>
-      </Panel>
-    </section>
+          {selectedResult ? (
+            <MomentumTab
+              signal={signal}
+              state={{
+                loading: false,
+                error: null,
+                data: {
+                  result: selectedResult,
+                  series: result.series.map((row) => ({
+                    ...row,
+                    selected_signal: row[signal],
+                  })),
+                },
+              }}
+            />
+          ) : (
+            <EmptyState text="No result is available for the selected signal." />
+          )}
+        </>
+      )}
+    </div>
   );
 }
 

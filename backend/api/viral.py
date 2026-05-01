@@ -155,28 +155,69 @@ def get_recent_viral_events(sector: str | None = None, days: int = 5) -> dict[st
     start_date = (date.today().toordinal() - max(days, 1) + 1)
     start_date = date.fromordinal(start_date).isoformat()
     with get_connection() as conn:
-        rows = conn.execute(
+        signal_count = conn.execute(
             f"""
-            SELECT v.id AS viral_event_id, v.sector, v.event_date, v.cas,
-                   v.threshold_value, p.id AS paper_id, p.title, p.doi,
-                   p.publication_date, p.detected_date, p.keyword,
-                   p.source_display_name, p.cited_by_count,
-                   a.reddit_hits, a.wiki_hits, a.citation_count,
-                   a.cit_velocity, a.age_days,
-                   r.result_json AS viral_result_json
-            FROM viral_events v
-            JOIN papers p ON p.id = v.paper_id_fk
-            LEFT JOIN attention_scores a ON a.paper_id_fk = p.id
-            LEFT JOIN viral_event_results r ON r.sector = v.sector
-            WHERE p.publication_date BETWEEN ? AND ?
-              {"AND v.sector = ?" if sector else ""}
-            ORDER BY p.publication_date DESC, v.cas DESC, p.title
+            SELECT COUNT(*) AS n
+            FROM radar_signals
+            WHERE signal_date BETWEEN ? AND ?
+              {"AND sector = ?" if sector else ""}
             """,
             [start_date, today] + ([sector] if sector else []),
-        ).fetchall()
+        ).fetchone()["n"]
 
-        event_ids = [row["viral_event_id"] for row in rows]
-        windows = _event_windows(conn, event_ids)
+        if signal_count:
+            rows = conn.execute(
+                f"""
+                SELECT COALESCE(v.id, r.id) AS viral_event_id,
+                       r.sector,
+                       COALESCE(v.event_date, r.publication_date) AS event_date,
+                       r.cas, r.threshold_value,
+                       p.id AS paper_id, p.title, p.doi, p.publication_date,
+                       p.detected_date, p.keyword, p.source_display_name,
+                       p.cited_by_count,
+                       a.reddit_hits, a.wiki_hits, a.citation_count,
+                       a.cit_velocity, a.age_days,
+                       r.historical_car_5d, r.historical_n,
+                       r.historical_pval, r.days_remaining,
+                       NULL AS viral_result_json
+                FROM radar_signals r
+                JOIN papers p ON p.id = r.paper_id_fk
+                LEFT JOIN attention_scores a ON a.paper_id_fk = p.id
+                LEFT JOIN viral_events v
+                  ON v.paper_id_fk = p.id
+                 AND v.sector = r.sector
+                 AND v.is_historical = 0
+                WHERE r.signal_date BETWEEN ? AND ?
+                  {"AND r.sector = ?" if sector else ""}
+                ORDER BY r.signal_date DESC, r.cas DESC, p.title
+                """,
+                [start_date, today] + ([sector] if sector else []),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""
+                SELECT v.id AS viral_event_id, v.sector, v.event_date, v.cas,
+                       v.threshold_value, p.id AS paper_id, p.title, p.doi,
+                       p.publication_date, p.detected_date, p.keyword,
+                       p.source_display_name, p.cited_by_count,
+                       a.reddit_hits, a.wiki_hits, a.citation_count,
+                       a.cit_velocity, a.age_days,
+                       NULL AS historical_car_5d, NULL AS historical_n,
+                       NULL AS historical_pval, NULL AS days_remaining,
+                       r.result_json AS viral_result_json
+                FROM viral_events v
+                JOIN papers p ON p.id = v.paper_id_fk
+                LEFT JOIN attention_scores a ON a.paper_id_fk = p.id
+                LEFT JOIN viral_event_results r ON r.sector = v.sector
+                WHERE p.publication_date BETWEEN ? AND ?
+                  {"AND v.sector = ?" if sector else ""}
+                ORDER BY p.publication_date DESC, v.cas DESC, p.title
+                """,
+                [start_date, today] + ([sector] if sector else []),
+            ).fetchall()
+
+        event_ids = [row["viral_event_id"] for row in rows if row["viral_event_id"]]
+        windows = _event_windows(conn, event_ids) if not signal_count else {}
 
     events = []
     for row in rows:
@@ -185,9 +226,9 @@ def get_recent_viral_events(sector: str | None = None, days: int = 5) -> dict[st
         car_5d = result.get("car_5d") or {}
         item["doi_url"] = doi_url(item.get("doi"))
         item["historical_context"] = {
-            "mean_car_5d": car_5d.get("mean_car"),
-            "n_events": car_5d.get("n_events"),
-            "p_value": car_5d.get("p_value"),
+            "mean_car_5d": item.pop("historical_car_5d", None) or car_5d.get("mean_car"),
+            "n_events": item.pop("historical_n", None) or car_5d.get("n_events"),
+            "p_value": item.pop("historical_pval", None) or car_5d.get("p_value"),
             "note": car_5d.get("note"),
         }
         item["event_window"] = windows.get(item["viral_event_id"], [])

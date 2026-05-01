@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from flask import Flask, jsonify
 
+from backend.api.research import bp as research_bp
 from backend.api.sectors import bp as sectors_bp
 from backend.api.viral import bp as viral_bp
 from backend.database import get_db_path, init_db
@@ -14,6 +15,7 @@ def create_app() -> Flask:
     app.config["JSON_SORT_KEYS"] = False
 
     init_db()
+    app.register_blueprint(research_bp)
     app.register_blueprint(sectors_bp)
     app.register_blueprint(viral_bp)
 
@@ -24,7 +26,7 @@ def create_app() -> Flask:
     @app.after_request
     def add_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         return response
 

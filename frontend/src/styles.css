@@ -592,6 +592,37 @@ textarea {
   font-weight: 800;
 }
 
+.primary-action.enabled {
+  border-color: #1c7c74;
+  background: #1c7c74;
+  color: #ffffff;
+}
+
+.primary-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.progress-track {
+  height: 9px;
+  margin-top: 16px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef1ed;
+}
+
+.progress-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #1c7c74;
+  transition: width 180ms ease;
+}
+
+.research-error {
+  margin-top: 14px;
+}
+
 .state-block,
 .empty-state {
   padding: 22px;
