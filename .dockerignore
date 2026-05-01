@@ -1,0 +1,14 @@
+.git
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.env
+.env.*
+frontend/node_modules/
+frontend/dist/
+data/*.db-*
+data/*.sqlite-*
+data/audit/

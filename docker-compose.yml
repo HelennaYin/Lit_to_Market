@@ -1,0 +1,28 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      LITMARKET_DB_PATH: /app/data/litmarket.db
+      OPENALEX_EMAIL: ${OPENALEX_EMAIL:-research@litmarket.io}
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "5001:5001"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ""
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"

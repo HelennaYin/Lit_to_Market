@@ -52,6 +52,7 @@ def run_nightly_radar(
     dry_run: bool = False,
     max_pages: int = 5,
     skip_attention: bool = False,
+    max_attention_scores: int | None = None,
 ) -> dict[str, Any]:
     init_db()
     end_date = target_date or (date.today() - timedelta(days=1))
@@ -92,7 +93,12 @@ def run_nightly_radar(
             summary["inserted_papers"] += len(inserted_ids)
             scored_ids = []
             if not dry_run and not skip_attention:
-                scored_ids = score_unscored_papers(conn, sector["sector"], timestamp)
+                scored_ids = score_unscored_papers(
+                    conn,
+                    sector["sector"],
+                    timestamp,
+                    max_scores=max_attention_scores,
+                )
                 summary["scored_papers"] += len(scored_ids)
 
             alerts = []
@@ -305,9 +311,18 @@ def upsert_paper(
     return int(row["id"])
 
 
-def score_unscored_papers(conn, sector: str, timestamp: str) -> list[int]:
+def score_unscored_papers(
+    conn,
+    sector: str,
+    timestamp: str,
+    max_scores: int | None = None,
+) -> list[int]:
+    limit_clause = "LIMIT ?" if max_scores is not None and max_scores >= 0 else ""
+    params: tuple[Any, ...] = (sector,)
+    if limit_clause:
+        params = (sector, max_scores)
     rows = conn.execute(
-        """
+        f"""
         SELECT p.id, p.doi, p.publication_date, p.cited_by_count
         FROM papers p
         LEFT JOIN attention_scores a ON a.paper_id_fk = p.id
@@ -315,8 +330,9 @@ def score_unscored_papers(conn, sector: str, timestamp: str) -> list[int]:
           AND p.is_filtered_out = 0
           AND a.id IS NULL
         ORDER BY p.publication_date DESC, p.id
+        {limit_clause}
         """,
-        (sector,),
+        params,
     ).fetchall()
     scored_ids = []
     for row in rows:
@@ -651,6 +667,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true", help="Fetch and filter, but do not write SQLite.")
     parser.add_argument("--max-pages", type=int, default=5, help="Maximum OpenAlex cursor pages per keyword.")
     parser.add_argument("--skip-attention", action="store_true", help="Insert papers but skip Reddit/Wikipedia scoring.")
+    parser.add_argument(
+        "--max-attention-scores",
+        type=int,
+        default=None,
+        help="Maximum unscored papers to score per sector. Use -1 for no cap.",
+    )
     return parser.parse_args()
 
 
@@ -669,6 +691,7 @@ def main() -> None:
         dry_run=args.dry_run,
         max_pages=max(args.max_pages, 1),
         skip_attention=args.skip_attention,
+        max_attention_scores=None if args.max_attention_scores is None or args.max_attention_scores < 0 else args.max_attention_scores,
     )
     print(json.dumps(summary, indent=2, sort_keys=True))
 
