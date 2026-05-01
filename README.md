@@ -71,6 +71,9 @@ http://127.0.0.1:5173
 The refresh command is intentionally incremental and non-destructive. It never
 deletes `data/litmarket.db`.
 
+The refresh uses SQLite as the source of truth. It does not require the original
+analysis folders such as `Logic_test/cache` to be present in the Docker image.
+
 Preview what would happen:
 
 ```bash
@@ -88,20 +91,61 @@ Useful safety controls:
 ```bash
 --max-weekly-weeks 26
 --nightly-max-pages 1
---nightly-max-attention-scores 50
+--nightly-max-attention-scores -1
 --nightly-skip-attention
 --skip-nightly-radar
+--refresh-viral-seed
 ```
 
-The DOI attention cap is a batch size, not a data-loss filter. All fetched
-papers are stored in SQLite first; unscored papers remain in the backlog and
-can be scored by a later run.
+By default, DOI attention scoring is uncapped. If you set
+`--nightly-max-attention-scores`, that value is a batch size, not a data-loss
+filter. All fetched papers are stored in SQLite first; unscored papers remain in
+the backlog and can be scored by a later run.
+
+`--refresh-viral-seed` is off by default because it expects historical cleaned
+support files under `Build/data/cleaned`. Normal refreshes update current data
+directly from SQLite plus external APIs.
 
 Inside Docker:
 
 ```bash
 docker compose exec backend python -m backend.pipelines.refresh_database --dry-run --skip-nightly-radar
 ```
+
+## 2am Scheduler
+
+Docker enables a backend scheduler by default:
+
+```text
+02:00 America/New_York every day
+```
+
+The scheduled job runs:
+
+```text
+refresh_database
+```
+
+with:
+
+```text
+nightly_days = 1
+nightly_max_pages = 1
+nightly_max_attention_scores = unlimited
+max_weekly_weeks = 26
+```
+
+If Reddit, Wikipedia, or OpenAlex rate-limits the process, the pipeline waits
+longer before continuing. The scheduler runs inside the backend container with
+one Gunicorn worker so only one scheduler instance is active.
+
+Disable the scheduler:
+
+```bash
+LITMARKET_ENABLE_SCHEDULER=0 docker compose up --build
+```
+
+Or edit `docker-compose.yml`.
 
 ## Nightly Radar
 

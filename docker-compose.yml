@@ -5,6 +5,12 @@ services:
       dockerfile: backend/Dockerfile
     environment:
       LITMARKET_DB_PATH: /app/data/litmarket.db
+      LITMARKET_ENABLE_SCHEDULER: "1"
+      LITMARKET_SCHEDULER_TIMEZONE: America/New_York
+      LITMARKET_REFRESH_HOUR: "2"
+      LITMARKET_REFRESH_MINUTE: "0"
+      LITMARKET_NIGHTLY_MAX_PAGES: "1"
+      LITMARKET_MAX_WEEKLY_WEEKS: "26"
       OPENALEX_EMAIL: ${OPENALEX_EMAIL:-research@litmarket.io}
     volumes:
       - ./data:/app/data

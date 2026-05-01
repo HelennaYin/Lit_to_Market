@@ -44,6 +44,7 @@ REDDIT_MAX_RETRY = 2
 HEADERS = {
     "User-Agent": "LitMarket-Research-Bot/1.0 (academic; contact: research@example.com)"
 }
+RATE_LIMIT_SLEEP_SECONDS = 300
 
 
 def run_nightly_radar(
@@ -399,7 +400,9 @@ def query_reddit(doi: str, pub_date: date | None, retry: int = 0) -> int:
         if response.status_code == 429:
             if retry >= REDDIT_MAX_RETRY:
                 return 0
-            time.sleep(60 * (retry + 1))
+            retry_after = parse_retry_after(response.headers.get("Retry-After"))
+            wait = retry_after or RATE_LIMIT_SLEEP_SECONDS * (retry + 1)
+            time.sleep(wait)
             return query_reddit(doi, pub_date, retry + 1)
         if not response.ok:
             return 0
@@ -431,6 +434,10 @@ def query_wikipedia(doi: str, pub_date: date | None) -> int:
             headers=HEADERS,
             timeout=REQUEST_TIMEOUT,
         )
+        if response.status_code == 429:
+            retry_after = parse_retry_after(response.headers.get("Retry-After"))
+            time.sleep(retry_after or RATE_LIMIT_SLEEP_SECONDS)
+            return 0
         if not response.ok:
             return 0
         return len(response.json().get("query", {}).get("search", []))
@@ -637,6 +644,15 @@ def normalize_doi(value: Any) -> str:
 
 def parse_date(value: Any) -> date | None:
     if not value:
+        return None
+
+
+def parse_retry_after(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        return max(int(value), 0)
+    except ValueError:
         return None
     try:
         return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()
